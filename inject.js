@@ -1,3 +1,774 @@
+function make_v(envs, keys){
+    _envs = envs
+    envs = _envs[0]
+    eles = _envs[1]
+    var configs = {
+        EventTarget: {
+            addEventListener: { ban: true },
+        },
+        Document: {
+            createElement: {
+                value: 'return _createElement(arguments[0])'
+            },
+            documentElement: {
+                value: 'return document'
+            },
+            cookie: { ban: true },
+            getElementById: { ban: true },
+            getElementsByClassName: { ban: true },
+            getElementsByName: { ban: true },
+            getElementsByTagName: { ban: true },
+            getElementsByTagNameNS: { ban: true },
+            querySelector: { ban: true },
+            querySelectorAll: { ban: true },
+        },
+        Navigator:{
+            javaEnabled:{ value: 'return true' },
+            plugins: {value: `return this._plugins || []`},
+            mimeTypes:  {value: `return this._mimeTypes || []`},
+            __init__: {value: `this._plugins = typeof PluginArray=='undefined'?[]:v_new(PluginArray); this._mimeTypes = typeof MimeTypeArray=='undefined'?[]:v_new(MimeTypeArray)`}
+        },
+        Node: {
+            appendChild: {value: ''},
+            removeChild: {value: ''},
+        },
+        HTMLElement: {
+            style: {value: 'return this._style'},
+        },
+        Element: {
+            tagName: {value: 'return this._tagName'},
+        },
+        Storage:{
+            clear:{ ban: true },
+            getItem:{ ban: true },
+            setItem:{ ban: true },
+            key:{ ban: true },
+            removeItem:{ ban: true },
+            length:{ ban: true },
+        },
+        PluginArray: {
+            __init__: {
+                value: function(){
+                    var _plugins = navigator.plugins
+                    var _ret = []
+                    for (var i = 0; i < _plugins.length; i++) {
+                        _ret.push([
+                            `  this[${i}]=v_new(Plugin);`,
+                            `this[${i}].description=${JSON.stringify(_plugins[i].description)};`,
+                            `this[${i}].filename=${JSON.stringify(_plugins[i].filename)};`,
+                            `this[${i}].length=${JSON.stringify(_plugins[i].length)};`,
+                            `this[${i}].name=${JSON.stringify(_plugins[i].name)};`,
+                        ].join(''))
+                    }
+                    return '\n' + _ret.join('\n')
+                }
+            }
+        },
+        Plugin:{
+            description: { ban: true },
+            filename: { ban: true },
+            length: { ban: true },
+            name: { ban: true },
+        },
+        Crypto: {
+            getRandomValues: { ban: true },
+            randomUUID: { ban: true },
+            __init__: {
+                value: `
+  this.getRandomValues = function(){
+    v_console_log('  [*] Crypto -> getRandomValues[func]')
+    var e=arguments[0]; return e.map(function(x, i){return e[i]=v_random()*1073741824});}
+  this.randomUUID = function(){
+    v_console_log('  [*] Crypto -> randomUUID[func]')
+    function get2(){return (v_random()*255^0).toString(16).padStart(2,'0')}
+    function rpt(func,num){var r=[];for(var i=0;i<num;i++){r.push(func())};return r.join('')}
+    return [rpt(get2,4),rpt(get2,2),rpt(get2,2),rpt(get2,2),rpt(get2,6)].join('-')}`
+            },
+        },
+        MimeTypeArray: {
+            __init__: {
+                value: function(){
+                    var _mimeTypes = navigator.mimeTypes
+                    var _ret = []
+                    for (var i = 0; i < _mimeTypes.length; i++) {
+                        _ret.push([
+                            `  this[${i}]=v_new(Plugin);`,
+                            `this[${i}].description=${JSON.stringify(_mimeTypes[i].description)};`,
+                            `this[${i}].enabledPlugin=${JSON.stringify(_mimeTypes[i].enabledPlugin)};`,
+                            `this[${i}].suffixes=${JSON.stringify(_mimeTypes[i].suffixes)};`,
+                            `this[${i}].type=${JSON.stringify(_mimeTypes[i].type)};`,
+                        ].join(''))
+                    }
+                    return '\n' + _ret.join('\n')
+                }
+            }
+        },
+        MimeType:{
+            description: { ban: true },
+            enabledPlugin: { ban: true },
+            suffixes: { ban: true },
+            type: { ban: true },
+        },
+        SVGElement: {
+            style: {value: ''},
+        },
+        Image:{
+            __init__: {value: 'return v_new(HTMLImageElement)'}
+        },
+        HTMLCanvasElement:{
+            getContext: {value: `if (arguments[0]=='2d'){var r = v_new(CanvasRenderingContext2D); return r}; if (arguments[0]=='webgl' || arguments[0]=='experimental-webgl'){var r = v_new(WebGLRenderingContext); r._canvas = this; return r}; return null`},
+            toDataURL: {value: `return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAEYklEQVR4Xu3UAQkAAAwCwdm/9HI83BLIOdw5AgQIRAQWySkmAQIEzmB5AgIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlACBB1YxAJfjJb2jAAAAAElFTkSuQmCC"`},
+        },
+        WebGLRenderingContext: {
+            canvas: {value: `return this._canvas`},
+            createBuffer: { ban: true },
+            createProgram: { ban: true },
+            createShader: { ban: true },
+            getSupportedExtensions: { ban: true },
+            getExtension: { ban: true },
+            getParameter: { ban: true },
+            getContextAttributes: { ban: true },
+            getShaderPrecisionFormat: { ban: true },
+            __init__:{
+    value:`
+  function WebGLBuffer(){}
+  function WebGLProgram(){}
+  function WebGLShader(){}
+  this._toggle = {}
+  this.createBuffer = function(){ v_console_log('  [*] WebGLRenderingContext -> createBuffer[func]'); return v_new(WebGLBuffer) }
+  this.createProgram = function(){ v_console_log('  [*] WebGLRenderingContext -> createProgram[func]'); return v_new(WebGLProgram) }
+  this.createShader = function(){ v_console_log('  [*] WebGLRenderingContext -> createShader[func]'); return v_new(WebGLShader) }
+  this.getSupportedExtensions = function(){
+    v_console_log('  [*] WebGLRenderingContext -> getSupportedExtensions[func]')
+    return [
+      "ANGLE_instanced_arrays", "EXT_blend_minmax", "EXT_color_buffer_half_float", "EXT_disjoint_timer_query", "EXT_float_blend", "EXT_frag_depth",
+      "EXT_shader_texture_lod", "EXT_texture_compression_bptc", "EXT_texture_compression_rgtc", "EXT_texture_filter_anisotropic", "WEBKIT_EXT_texture_filter_anisotropic", "EXT_sRGB",
+      "KHR_parallel_shader_compile", "OES_element_index_uint", "OES_fbo_render_mipmap", "OES_standard_derivatives", "OES_texture_float", "OES_texture_float_linear",
+      "OES_texture_half_float", "OES_texture_half_float_linear", "OES_vertex_array_object", "WEBGL_color_buffer_float", "WEBGL_compressed_texture_s3tc", 
+      "WEBKIT_WEBGL_compressed_texture_s3tc", "WEBGL_compressed_texture_s3tc_srgb", "WEBGL_debug_renderer_info", "WEBGL_debug_shaders",
+      "WEBGL_depth_texture","WEBKIT_WEBGL_depth_texture","WEBGL_draw_buffers","WEBGL_lose_context","WEBKIT_WEBGL_lose_context","WEBGL_multi_draw",
+    ]
+  }
+  var self = this
+  this.getExtension = function(key){
+    v_console_log('  [*] WebGLRenderingContext -> getExtension[func]:', key)
+    class WebGLDebugRendererInfo{
+      get UNMASKED_VENDOR_WEBGL(){self._toggle[37445]=1;return 37445}
+      get UNMASKED_RENDERER_WEBGL(){self._toggle[37446]=1;return 37446}
+    }
+    class EXTTextureFilterAnisotropic{}
+    class WebGLLoseContext{
+      loseContext(){}
+      restoreContext(){}
+    }
+    if (key == 'WEBGL_debug_renderer_info'){ var r = new WebGLDebugRendererInfo }
+    if (key == 'EXT_texture_filter_anisotropic'){ var r = new EXTTextureFilterAnisotropic }
+    if (key == 'WEBGL_lose_context'){ var r = new WebGLLoseContext }
+    else{ var r = new WebGLDebugRendererInfo }
+    return r
+  }
+  this.getParameter = function(key){
+    v_console_log('  [*] WebGLRenderingContext -> getParameter[func]:', key)
+    if (this._toggle[key]){
+      if (key == 37445){ return "Google Inc. (NVIDIA)" }
+      if (key == 37446){ return "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti Direct3D11 vs_5_0 ps_5_0, D3D11-27.21.14.5671)" }
+    }else{
+      if (key == 33902){ return new Float32Array([1,1]) }
+      if (key == 33901){ return new Float32Array([1,1024]) }
+      if (key == 35661){ return 32 }
+      if (key == 34047){ return 16 }
+      if (key == 34076){ return 16384 }
+      if (key == 36349){ return 1024 }
+      if (key == 34024){ return 16384 }
+      if (key == 34930){ return 16 }
+      if (key == 3379){ return 16384 }
+      if (key == 36348){ return 30 }
+      if (key == 34921){ return 16 }
+      if (key == 35660){ return 16 }
+      if (key == 36347){ return 4095 }
+      if (key == 3386){ return new Int32Array([32767, 32767]) }
+      if (key == 3410){ return 8 }
+      if (key == 7937){ return "WebKit WebGL" }
+      if (key == 35724){ return "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)" }
+      if (key == 3415){ return 0 }
+      if (key == 7936){ return "WebKit" }
+      if (key == 7938){ return "WebGL 1.0 (OpenGL ES 2.0 Chromium)" }
+      if (key == 3411){ return 8 }
+      if (key == 3412){ return 8 }
+      if (key == 3413){ return 8 }
+      if (key == 3414){ return 24 }
+      return null
+    }
+  }
+  this.getContextAttributes = function(){
+    v_console_log('  [*] WebGLRenderingContext -> getContextAttributes[func]')
+    return {
+      alpha: true,
+      antialias: true,
+      depth: true,
+      desynchronized: false,
+      failIfMajorPerformanceCaveat: false,
+      powerPreference: "default",
+      premultipliedAlpha: true,
+      preserveDrawingBuffer: false,
+      stencil: false,
+      xrCompatible: false,
+    }
+  }
+  this.getShaderPrecisionFormat = function(a,b){
+    v_console_log('  [*] WebGLRenderingContext -> getShaderPrecisionFormat[func]')
+    function WebGLShaderPrecisionFormat(){}
+    var r1 = v_new(WebGLShaderPrecisionFormat)
+    r1.rangeMin = 127
+    r1.rangeMax = 127
+    r1.precision = 23
+    var r2 = v_new(WebGLShaderPrecisionFormat)
+    r2.rangeMin = 31
+    r2.rangeMax = 30
+    r2.precision = 0
+    if (a == 35633 && b == 36338){ return r1 } if (a == 35633 && b == 36337){ return r1 } if (a == 35633 && b == 36336){ return r1 } 
+    if (a == 35633 && b == 36341){ return r2 } if (a == 35633 && b == 36340){ return r2 } if (a == 35633 && b == 36339){ return r2 }
+    if (a == 35632 && b == 36338){ return r1 } if (a == 35632 && b == 36337){ return r1 } if (a == 35632 && b == 36336){ return r1 }
+    if (a == 35632 && b == 36341){ return r2 } if (a == 35632 && b == 36340){ return r2 } if (a == 35632 && b == 36339){ return r2 }
+    throw Error('getShaderPrecisionFormat')
+  }
+  v_saf(this.createBuffer, 'createBuffer')
+  v_saf(this.createProgram, 'createProgram')
+  v_saf(this.createShader, 'createShader')
+  v_saf(this.getSupportedExtensions, 'getSupportedExtensions')
+  v_saf(this.getExtension, 'getExtension')
+  v_saf(this.getParameter, 'getParameter')
+  v_saf(this.getContextAttributes, 'getContextAttributes')
+  v_saf(this.getShaderPrecisionFormat, 'getShaderPrecisionFormat')`},
+        },
+        HTMLDocument: {__init__:{
+            value: `Object.defineProperty(this, 'location', {get(){return location}})`
+        }},
+        Performance:{
+            timing:{
+                value: `return v_new(PerformanceTiming)`
+            },
+            getEntriesByType:{
+                value: `if (arguments[0]=='resource'){return v_new(PerformanceResourceTiming)}`
+            }
+        },
+        HTMLAnchorElement:{
+            __init__:{
+                value: `v_hook_href(this, 'HTMLAnchorElement', location.href)`
+            }
+        },
+    }
+    function make_chain(name){
+        var _name = name
+        var list = []
+        if (window[_name]){
+            list.push(_name)
+        }
+        while(window[_name]){
+            _name = Object.getPrototypeOf(window[_name]).name
+            if (_name){
+                list.push(_name)
+            }
+        }
+        return list
+    }
+    function is_literal(value){
+        var allc = ['string', 'number', 'boolean', 'undefined']
+        return allc.indexOf(typeof value) != -1 || value === null
+    }
+    function get_class_name(obj){
+        return /\[object ([^\]]+)\]/.exec(Object.prototype.toString.call(obj))[1]
+    }
+    function check_ban(clazz, name){
+        return configs[clazz] && configs[clazz][name] && configs[clazz][name].ban
+    }
+    function make_return(clazz, name, value, type){
+        var ret
+        var tog
+        if (configs[clazz] && configs[clazz][name]){
+            ret = configs[clazz][name].value
+            if (typeof ret == 'function'){
+                ret = ret()
+            }
+            tog = true
+        }
+        else if (typeof value != 'undefined'){
+            ret = 'return ' + value
+        }
+        else{
+            ret = ''
+        }
+        var prefix = ''
+        if (type != 'get'){
+            var prefix = `v_console_log("  [*] ${clazz} -> ${name}[${type}]", [].slice.call(arguments))`
+        }else{
+            var val = /return (.*)|(.*)/.exec(ret)
+            var val = val[1] || val[2]
+            var prefix = `v_console_log("  [*] ${clazz} -> ${name}[${type}]", ${tog?val:value})`
+        }
+        return prefix + ';' + ret
+    }
+    function make_init(clazz){
+        var ret;
+        if (configs[clazz] && configs[clazz]['__init__']){
+            ret = configs[clazz]['__init__'].value
+            if (typeof ret == 'function'){
+                ret = ret()
+            }
+        }else{
+            ret = ''
+        }
+        return ret
+    }
+    function make_s(renv, clazz_f, isout){
+        var clazz = clazz_f[0]
+        var father = clazz_f[1]
+        if (!renv[clazz]){
+            var lst = []
+        }else{
+            var lst = Object.keys(renv[clazz])
+        }
+        var inner = []
+        try{
+            new window[clazz]
+            var cannew = true
+        }catch(e){
+            var cannew = false
+        }
+        for (var i = 0; i < lst.length; i++) {
+            var name = lst[i]
+            var temp = renv[clazz][name]
+            if (check_ban(clazz, name)){
+                continue
+            }
+            if (temp.get||temp.set){
+                var alls = []
+                if (temp.get){
+                    var value = JSON.stringify(temp.get.value)
+                    var getter = `get(){ ${make_return(clazz, name, value, 'get')} }`
+                    alls.push(getter)
+                }
+                if (temp.set){
+                    var setter = `set(){ ${make_return(clazz, name, value, 'set')} }`
+                    alls.push(setter)
+                }
+
+                inner.push(`  ${name}: {${alls.join(',')}},`)
+            }
+            if (temp.func){
+                inner.push(`  ${name}: {value: v_saf(function ${name}(){${make_return(clazz, name, undefined, 'func')}})},`)
+            }
+        }
+        var plist = Object.keys((v_window_cache[clazz] || window[clazz]).prototype)
+        plist.push(Symbol.toStringTag)
+        for (var i = 0; i < plist.length; i++) {
+            try{
+                var value = window[clazz].prototype[plist[i]]
+                if (is_literal(value)){
+                    var _desc = Object.getOwnPropertyDescriptors(window[clazz].prototype)[plist[i]]
+                    inner.push(`  ${plist[i]}: ${JSON.stringify(_desc)},`)
+                }
+            }catch(e){}
+        }
+        inner.push(`  [Symbol.toStringTag]: {value:"${clazz}",writable:false,enumerable:false,configurable:true},`)
+        if (inner.length){
+            inner.unshift(`Object.defineProperties(${clazz}.prototype, {`)
+            inner.push(`})`)
+        }
+        var init = make_init(clazz, name)
+        var ls = [
+            `${clazz} = v_saf(function ${clazz}(){${cannew?'':'if (!v_new_toggle){ throw TypeError("Illegal constructor") }'};${init}})` + (father?`; _inherits(${clazz}, ${father})`:''),
+        ]
+        if (isout){
+          return [ls, inner]
+        }
+        defines.push(...ls)
+        definepros.push(...inner)
+        // return ls.join('\n')
+    }
+
+    var ekeys = Object.keys(envs)
+    var renv = {}
+    var maxlen = 0
+    if (!keys){ keys = ekeys }
+    if (typeof keys == 'string'){ keys = [keys] }
+    var collect = []
+    for (var i = 0; i < keys.length; i++) {
+        var e = envs[keys[i]]
+        var temp = Object.keys(e)
+        for (var j = 0; j < temp.length; j++) {
+            renv[temp[j]] = renv[temp[j]] || {}
+            var funcs = Object.keys(e[temp[j]])
+            for (var k = 0; k < funcs.length; k++) {
+                renv[temp[j]][funcs[k]] = renv[temp[j]][funcs[k]] || {}
+                var types = Object.keys(e[temp[j]][funcs[k]])
+                for (var l = 0; l < types.length; l++) {
+                    renv[temp[j]][funcs[k]][types[l]] = renv[temp[j]][funcs[k]][types[l]] || {}
+                    renv[temp[j]][funcs[k]][types[l]].value = e[temp[j]][funcs[k]][types[l]].value
+                }
+            }
+            var ls = make_chain(temp[j])
+            collect.push(ls)
+            maxlen = ls.length > maxlen ? ls.length : maxlen
+        }
+    }
+    if (!maxlen){ return }
+    for (var i = 0; i < collect.length; i++) {
+        var len = maxlen - collect[i].length
+        for (var j = 0; j < len; j++) {
+            collect[i].unshift(undefined)
+        }
+    }
+    var sorted = []
+    var dicter = {}
+    for (var i = maxlen - 1; i >= 0; i--) {
+        for (var j = 0; j < collect.length; j++) {
+            var temp = collect[j][i]
+            var pref = collect[j][i+1]
+            if (temp && sorted.indexOf(temp) == -1){
+                dicter[temp] = [temp, pref]
+                sorted.push(temp)
+            }
+        }
+    }
+    var prefix = [
+        `function _inherits(t, e) {`,
+        `  t.prototype = Object.create(e.prototype, {`,
+        `    constructor: { value: t, writable: !0, configurable: !0 }`,
+        `  }), e && Object.setPrototypeOf(t, e) }`,
+        `Object.defineProperty(Object.prototype, Symbol.toStringTag, {`,
+        `  get() { return Object.getPrototypeOf(this).constructor.name }`,
+        `});`,
+
+        'var v_new_toggle = true',
+        'Object.freeze(console)//only for javascript-obfuscator anti console debug.',
+        'var v_console_logger = console.log',
+        'var v_console_log = function(){if (!v_new_toggle){ v_console_logger.apply(this, arguments) }}',
+        'var v_random = (function() { var seed = 276951438; return function random() { return seed = (seed * 9301 + 49297) % 233280, (seed / 233280)} })()',
+        'var v_new = function(v){var temp=v_new_toggle; v_new_toggle = true; var r = new v; v_new_toggle = temp; return r}',
+    ]
+    var defines = []
+    var definepros = []
+    for (var i = 0; i < sorted.length; i++) {
+        make_s(renv, dicter[sorted[i]])
+    }
+
+    function patcher(name){
+      var list = make_chain(name)
+      if (list.length >= 3){
+        var lsinner = []
+        for (var i = 0; i < list.length-1; i++) {
+          if (!dicter[list[i]]){
+            dicter[list[i]] = 1; 
+            lsinner.push(make_s(renv, [list[i], list[i+1]], true))
+          }
+        }
+        for (var i = lsinner.length - 1; i >= 0; i--) {
+          var _lsin = lsinner[i]
+          defines.push(..._lsin[0])
+          definepros.push(..._lsin[1])
+        }
+      }else{
+        if (!dicter[name]){
+          dicter[name] = 1; 
+          make_s(renv, make_chain(name))
+        }
+      }
+    }
+    patcher('Window')
+    patcher('HTMLDocument')
+    patcher('Navigator')
+    patcher('PluginArray')
+    patcher('Plugin')
+    patcher('MimeTypeArray')
+    patcher('MimeType')
+    patcher('CSSStyleDeclaration')
+    patcher('Location')
+    patcher('HTMLCanvasElement')
+    patcher('WebGLRenderingContext')
+    patcher('CanvasRenderingContext2D')
+    patcher('Performance')
+    patcher('PerformanceTiming')
+    patcher('PerformanceEntry')
+    patcher('PerformanceResourceTiming')
+    patcher('Image')
+    patcher('HTMLImageElement')
+    patcher('HTMLMediaElement')
+    patcher('Storage')
+    
+    var _global = []
+    var _gcache = []
+    var _mpname = []
+    var list = Object.keys(window)
+    var _list = []
+    var _first = ['self', 'top', 'frames', 'parent']
+    for (var i = 0; i < list.length; i++) {
+        if (_first.indexOf(list[i]) != -1){
+            _list.unshift(list[i])
+        }else if (list[i] != 'window'){
+            _list.push(list[i])
+        }
+    }
+    _list.unshift('window')
+
+    var htmlmap = {
+      HTMLElement: ["abbr", "address", "article", "aside", "b", "bdi", "bdo", "cite", "code", "dd", "dfn", "dt", "em", 
+                    "figcaption", "figure", "footer", "header", "hgroup", "i", "kbd", "main", "mark", "nav", "noscript", 
+                    "rp", "rt", "ruby", "s", "samp", "section", "small", "strong", "sub", "summary", "sup", "u", "var", "wbr"],
+      HTMLAnchorElement: ["a"],          HTMLImageElement: ["img"],         HTMLFontElement: ["font"],                                HTMLOutputElement: ["output"], 
+      HTMLAreaElement: ["area"],         HTMLInputElement: ["input"],       HTMLFormElement: ["form"],                                HTMLParagraphElement: ["p"], 
+      HTMLAudioElement: ["audio"],       HTMLLabelElement: ["label"],       HTMLFrameElement: ["frame"],                              HTMLParamElement: ["param"], 
+      HTMLBaseElement: ["base"],         HTMLLegendElement: ["legend"],     HTMLFrameSetElement: ["frameset"],                        HTMLPictureElement: ["picture"], 
+      HTMLBodyElement: ["body"],         HTMLLIElement: ["li"],             HTMLHeadingElement: ["h1", "h2", "h3", "h4", "h5", "h6"], HTMLPreElement: ["listing", "pre", "xmp"], 
+      HTMLBRElement: ["br"],             HTMLLinkElement: ["link"],         HTMLHeadElement: ["head"],                                HTMLProgressElement: ["progress"], 
+      HTMLButtonElement: ["button"],     HTMLMapElement: ["map"],           HTMLHRElement: ["hr"],                                    HTMLQuoteElement: ["blockquote", "q"], 
+      HTMLCanvasElement: ["canvas"],     HTMLMarqueeElement: ["marquee"],   HTMLHtmlElement: ["html"],                                HTMLScriptElement: ["script"], 
+      HTMLDataElement: ["data"],         HTMLMediaElement: [],              HTMLIFrameElement: ["iframe"],                            HTMLTimeElement: ["time"], 
+      HTMLDataListElement: ["datalist"], HTMLMenuElement: ["menu"],         HTMLSelectElement: ["select"],                            HTMLTitleElement: ["title"], 
+      HTMLDetailsElement: ["details"],   HTMLMetaElement: ["meta"],         HTMLSlotElement: ["slot"],                                HTMLTableRowElement: ["tr"], 
+      HTMLDialogElement: ["dialog"],     HTMLMeterElement: ["meter"],       HTMLSourceElement: ["source"],                            HTMLTableSectionElement: ["thead", "tbody", "tfoot"], 
+      HTMLDirectoryElement: ["dir"],     HTMLModElement: ["del", "ins"],    HTMLSpanElement: ["span"],                                HTMLTemplateElement: ["template"], 
+      HTMLDivElement: ["div"],           HTMLObjectElement: ["object"],     HTMLStyleElement: ["style"],                              HTMLTextAreaElement: ["textarea"], 
+      HTMLDListElement: ["dl"],          HTMLOListElement: ["ol"],          HTMLTableCaptionElement: ["caption"],                     HTMLTrackElement: ["track"], 
+      HTMLEmbedElement: ["embed"],       HTMLOptGroupElement: ["optgroup"], HTMLTableCellElement: ["th", "td"],                       HTMLUListElement: ["ul"], 
+      HTMLFieldSetElement: ["fieldset"], HTMLOptionElement: ["option"],     HTMLTableColElement: ["col", "colgroup"],                 HTMLUnknownElement: [], 
+      HTMLTableElement: ["table"],       HTMLVideoElement: ["video"]
+    }
+    var v_new_htmlmap = {}
+    var v_eles = Object.keys(dicter)
+    for (var i = 0; i < v_eles.length; i++) {
+        if (htmlmap[v_eles[i]]){
+            v_new_htmlmap[v_eles[i]] = htmlmap[v_eles[i]]
+        }
+    }
+    var v_createE = JSON.stringify(v_new_htmlmap, 0, 0)
+    var v_cele = []
+    if (v_createE.length > 3){
+        v_cele.push('function _createElement(name){')
+        v_cele.push('  '+ 'var htmlmap = ' + v_createE)
+        v_cele.push(...[
+            `  var ret, htmlmapkeys = Object.keys(htmlmap)`,
+            `  name = name.toLocaleLowerCase()`,
+            `  for (var i = 0; i < htmlmapkeys.length; i++) {`,
+            `    if (htmlmap[htmlmapkeys[i]].indexOf(name) != -1){`,
+            `      ret = v_new(window[htmlmapkeys[i]])`,
+            `      break`,
+            `    }`,
+            `  }`,
+            `  if (!ret){ ret = new v_saf(function HTMLUnknownElement(){}) }`,
+            `  if (typeof CSSStyleDeclaration != 'undefined') { ret._style = v_new(CSSStyleDeclaration) }`,
+            `  ret._tagName = name.toUpperCase()`,
+            `  return ret`,
+        ])
+        v_cele.push('}')
+    }
+
+    list = _list
+    for (var i = 0; i < list.length; i++) {
+        var obj = window[list[i]]
+        var name = get_class_name(obj)
+        if (dicter[name]){
+            var idx = _gcache.indexOf(obj)
+            if (idx == -1){
+                _gcache.push(obj)
+                _mpname.push(list[i])
+                if (list[i] == 'window'){
+                    _global.push(`if (typeof __dirname != 'undefined'){ __dirname = undefined }`)
+                    _global.push(`if (typeof __filename != 'undefined'){ __filename = undefined }`)
+                    _global.push(`if (typeof require != 'undefined'){ require = undefined }`)
+                    _global.push(`if (typeof exports != 'undefined'){ exports = undefined }`)
+                    _global.push(`if (typeof module != 'undefined'){ module = undefined }`)
+                    _global.push(`if (typeof Buffer != 'undefined'){ Buffer = undefined }`)
+                    _global.push(`var __globalThis__ = typeof global != 'undefined' ? global : this`)
+                    _global.push(`var window = new Proxy(v_new(Window), {`)
+                    _global.push(`  get(a,b){ return a[b] || __globalThis__[b] },`)
+                    _global.push(`  set(a,b,c){ __globalThis__[b] = a[b] = c },`)
+                    _global.push(`})`)
+                    _global.push(`Object.defineProperties(__globalThis__, {[Symbol.toStringTag]:{value:'Window'}})`)
+                    _global.push(`Object.defineProperties(__globalThis__, Object.getOwnPropertyDescriptors(window))`)
+                    _global.push(`Object.setPrototypeOf(__globalThis__, Object.getPrototypeOf(window))`)
+                }else{
+                    if (/^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(list[i]+'')){
+                        _global.push(`window.${list[i]} = v_new(${name})`)
+                    }else{
+                        _global.push(`window[${JSON.stringify(list[i])}] = v_new(${name})`)
+                    }
+                }
+            }else{
+                var vname = _mpname[idx]
+                if (/^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(list[i]+'')){
+                    _global.push(`window.${list[i]} = ${vname}`)
+                }else{
+                    _global.push(`window[${JSON.stringify(list[i])}] = ${vname}`)
+                }
+            }
+        }
+    }
+    var tail = [
+`function init_cookie(cookie){
+  var cache = (cookie || "").trim();
+  if (!cache){
+    cache = ''
+  }else if (cache.charAt(cache.length-1) != ';'){
+    cache += '; '
+  }else{
+    cache += ' '
+  }
+  Object.defineProperty(Document.prototype, 'cookie', {
+    get: function() {
+      var r = cache.slice(0,cache.length-2);
+      v_console_log('  [*] document -> cookie[get]', r)
+      return r
+    },
+    set: function(c) {
+      v_console_log('  [*] document -> cookie[set]', c)
+      var ncookie = c.split(";")[0].split("=");
+      if (!ncookie[1]){
+        return c
+      }
+      var key = ncookie[0].trim()
+      var val = ncookie[1].trim()
+      var newc = key+'='+val
+      var flag = false;
+      var temp = cache.split("; ").map(function(a) {
+        if (a.split("=")[0] === key) {
+          flag = true;
+          return newc;
+        }
+        return a;
+      })
+      cache = temp.join("; ");
+      if (!flag) {
+        cache += newc + "; ";
+      }
+      return cache;
+    }
+  });
+}
+function v_hook_href(obj, name, initurl){
+  var r = Object.defineProperty(obj, 'href', {
+    get: function(){
+      if (!(this.protocol) && !(this.host)){
+        r = ''
+      }else{
+        r = this.protocol + "//" + this.host + (this.port ? ":" + this.port : "") + this.pathname + this.search + this.hash;
+      }
+      v_console_log(\`  [*] \${name||obj.constructor.name} -> href[get]:\`, JSON.stringify(r))
+      return r
+    },
+    set: function(href){
+      href = href.trim()
+      v_console_log(\`  [*] \${name||obj.constructor.name} -> href[set]:\`, JSON.stringify(href))
+      if (href.startsWith("http://") || href.startsWith("https://")){/*ok*/}
+      else if(href.startsWith("//")){ href = (this.protocol?this.protocol:'http:') + href}
+      else{ href = this.protocol+"//"+this.host + (this.port?":"+this.port:"") + '/' + ((href[0]=='/')?href.slice(1):href) }
+      var a = href.match(/([^:]+:)\\/\\/([^/:?#]+):?(\\d+)?([^?#]*)?(\\?[^#]*)?(#.*)?/);
+      this.protocol = a[1] ? a[1] : "";
+      this.host     = a[2] ? a[2] : "";
+      this.port     = a[3] ? a[3] : "";
+      this.pathname = a[4] ? a[4] : "";
+      this.search   = a[5] ? a[5] : "";
+      this.hash     = a[6] ? a[6] : "";
+      this.hostname = this.host;
+      this.origin   = this.protocol + "//" + this.host + (this.port ? ":" + this.port : "");
+    }
+  });
+  if (initurl && initurl.trim()){ var temp=v_new_toggle; v_new_toggle = true; r.href = initurl; v_new_toggle = temp; }
+  return r
+}
+function v_hook_storage(){
+  Storage.prototype.clear      = v_saf(function(){          v_console_log(\`  [*] Storage -> clear[func]:\`); var self=this;Object.keys(self).forEach(function (key) { delete self[key]; }); }, 'clear')
+  Storage.prototype.getItem    = v_saf(function(key){       v_console_log(\`  [*] Storage -> getItem[func]:\`, key); var r = (this.hasOwnProperty(key)?String(this[key]):null); return r}, 'getItem')
+  Storage.prototype.setItem    = v_saf(function(key, val){  v_console_log(\`  [*] Storage -> setItem[func]:\`, key, val); this[key] = (val === undefined)?null:String(val) }, 'setItem')
+  Storage.prototype.key        = v_saf(function(key){       v_console_log(\`  [*] Storage -> key[func]:\`, key); return Object.keys(this)[key||0];} , 'key')
+  Storage.prototype.removeItem = v_saf(function(key){       v_console_log(\`  [*] Storage -> removeItem[func]:\`, key); delete this[key];}, 'removeItem')
+  Object.defineProperty(Storage.prototype, 'length', {get: function(){
+    if(this===Storage.prototype){ throw TypeError('Illegal invocation') }return Object.keys(this).length
+  }})
+  window.sessionStorage = new Proxy(sessionStorage,{ set:function(a,b,c){ v_console_log(\`  [*] Storage -> [set]:\`, b, c); return a[b]=String(c)}, get:function(a,b){ v_console_log(\`  [*] Storage -> [get]:\`, b, a[b]); return a[b]},})
+  window.localStorage = new Proxy(localStorage,{ set:function(a,b,c){ v_console_log(\`  [*] Storage -> [set]:\`, b, c); return a[b]=String(c)}, get:function(a,b){ v_console_log(\`  [*] Storage -> [get]:\`, b, a[b]); return a[b]},})
+}
+function v_init_document(){
+  Document.prototype.getElementById = v_saf(function getElementById(name){ var r = v_getele(name, 'getElementById'); v_console_log('  [*] Document -> getElementById', name, r); return r })
+  Document.prototype.querySelector = v_saf(function querySelector(name){ var r = v_getele(name, 'querySelector'); v_console_log('  [*] Document -> querySelector', name, r); return r })
+  Document.prototype.getElementsByClassName = v_saf(function getElementsByClassName(name){ var r = v_geteles(name, 'getElementsByClassName'); v_console_log('  [*] Document -> getElementsByClassName', name, r); return r })
+  Document.prototype.getElementsByName = v_saf(function getElementsByName(name){ var r = v_geteles(name, 'getElementsByName'); v_console_log('  [*] Document -> getElementsByName', name, r); return r })
+  Document.prototype.getElementsByTagName = v_saf(function getElementsByTagName(name){ var r = v_geteles(name, 'getElementsByTagName'); v_console_log('  [*] Document -> getElementsByTagName', name, r); return r })
+  Document.prototype.getElementsByTagNameNS = v_saf(function getElementsByTagNameNS(name){ var r = v_geteles(name, 'getElementsByTagNameNS'); v_console_log('  [*] Document -> getElementsByTagNameNS', name, r); return r })
+  Document.prototype.querySelectorAll = v_saf(function querySelectorAll(name){ var r = v_geteles(name, 'querySelectorAll'); v_console_log('  [*] Document -> querySelectorAll', name, r); return r })
+}
+function v_init_canvas(){
+  HTMLCanvasElement.prototype.getContext = function(){if (arguments[0]=='2d'){var r = v_new(CanvasRenderingContext2D); return r}; if (arguments[0]=='webgl' || arguments[0]=='experimental-webgl'){var r = v_new(WebGLRenderingContext); r._canvas = this; return r}; return null}
+  HTMLCanvasElement.prototype.toDataURL = function(){return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAEYklEQVR4Xu3UAQkAAAwCwdm/9HI83BLIOdw5AgQIRAQWySkmAQIEzmB5AgIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlAABg+UHCBDICBisTFWCEiBgsPwAAQIZAYOVqUpQAgQMlh8gQCAjYLAyVQlKgIDB8gMECGQEDFamKkEJEDBYfoAAgYyAwcpUJSgBAgbLDxAgkBEwWJmqBCVAwGD5AQIEMgIGK1OVoAQIGCw/QIBARsBgZaoSlACBB1YxAJfjJb2jAAAAAElFTkSuQmCC"}
+}
+function v_init_event_target(){
+  EventTarget.prototype.addEventListener = function(){v_console_log('  [*] EventTarget -> addEventListener[func]', this===window?'[Window]':this===document?'[Document]':this, [].slice.call(arguments)); return null}
+  EventTarget.prototype.dispatchEvent = function(){v_console_log('  [*] EventTarget -> dispatchEvent[func]', this===window?'[Window]':this===document?'[Document]':this, [].slice.call(arguments)); return null}
+  EventTarget.prototype.removeEventListener = function(){v_console_log('  [*] EventTarget -> removeEventListener[func]', this===window?'[Window]':this===document?'[Document]':this, [].slice.call(arguments)); return null}
+}
+function mk_atob_btoa(r){var a="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",t=new Array(-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,-1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1);return{atob:function(r){var a,e,o,h,c,i,n;for(i=r.length,c=0,n="";c<i;){do{a=t[255&r.charCodeAt(c++)]}while(c<i&&-1==a);if(-1==a)break;do{e=t[255&r.charCodeAt(c++)]}while(c<i&&-1==e);if(-1==e)break;n+=String.fromCharCode(a<<2|(48&e)>>4);do{if(61==(o=255&r.charCodeAt(c++)))return n;o=t[o]}while(c<i&&-1==o);if(-1==o)break;n+=String.fromCharCode((15&e)<<4|(60&o)>>2);do{if(61==(h=255&r.charCodeAt(c++)))return n;h=t[h]}while(c<i&&-1==h);if(-1==h)break;n+=String.fromCharCode((3&o)<<6|h)}return n},btoa:function(r){var t,e,o,h,c,i;for(o=r.length,e=0,t="";e<o;){if(h=255&r.charCodeAt(e++),e==o){t+=a.charAt(h>>2),t+=a.charAt((3&h)<<4),t+="==";break}if(c=r.charCodeAt(e++),e==o){t+=a.charAt(h>>2),t+=a.charAt((3&h)<<4|(240&c)>>4),t+=a.charAt((15&c)<<2),t+="=";break}i=r.charCodeAt(e++),t+=a.charAt(h>>2),t+=a.charAt((3&h)<<4|(240&c)>>4),t+=a.charAt((15&c)<<2|(192&i)>>6),t+=a.charAt(63&i)}return t}}}
+var atob_btoa = mk_atob_btoa()
+window.btoa = window.btoa || v_saf(atob_btoa.btoa, 'btoa')
+window.atob = window.atob || v_saf(atob_btoa.atob, 'atob')
+`,
+
+`init_cookie(${JSON.stringify(document.cookie)})`,
+`v_hook_href(window.location, 'location', ${JSON.stringify(location.href)})`,
+`v_hook_storage()`,
+`v_init_document()`,
+`v_init_canvas()`,
+`v_init_event_target()`,
+]
+
+    var v_getele = eles.v_getele
+    var v_geteles = eles.v_geteles
+    var v_getele_inner = Object.keys(v_getele).map(function(e){
+      var clzname = get_class_name(v_getele[e][1])
+      patcher(clzname)
+      return `  if(name == ${JSON.stringify(e)} && func == ${JSON.stringify(v_getele[e][0])}){ return v_new(${clzname}) }`
+    })
+    v_getele_inner.push('  return null')
+    tail.push(...[
+      `function v_getele(name, func){`,
+      ...v_getele_inner,
+      `}`,
+    ])
+
+    var v_geteles_inner = Object.keys(v_geteles).map(function(e){
+      var _clzs = []
+      var _eles = v_geteles[e][1]
+      for (var i = 0; i < _eles.length; i++) {
+        var clzname = get_class_name(_eles[i])
+        patcher(clzname)
+        _clzs.push(`v_new(${clzname})`)
+      }
+      return `  if(name == ${JSON.stringify(e)} && func == ${JSON.stringify(v_geteles[e][0])}){ return [${_clzs.join(',')}] }`
+    })
+    v_geteles_inner.push('  return null')
+    tail.push(...[
+      `function v_geteles(name, func){`,
+      ...v_geteles_inner,
+      `}`,
+    ])
+
+    tail.push('v_new_toggle = undefined')
+    var rets = [
+        `var v_saf;!function(){var n=Function.toString,t=[],i=[],o=[].indexOf.bind(t),e=[].push.bind(t),r=[].push.bind(i);function u(n,t){return-1==o(n)&&(e(n),r(\`function \${t||n.name||""}() { [native code] }\`)),n}Object.defineProperty(Function.prototype,"toString",{enumerable:!1,configurable:!0,writable:!0,value:function(){return"function"==typeof this&&i[o(this)]||n.call(this)}}),u(Function.prototype.toString,"toString"),v_saf=u}();`,
+        '\n',
+        ...prefix,
+        '\n',
+        ...defines,
+        ...definepros,
+        '\n\n\n',
+        ..._global,
+        ...v_cele,
+        ...tail,
+    ]
+    return rets.join('\n')
+}
+
+
+
 function injectfunc(e, window) {
   var FuntoString = Function.prototype.toString
   var origslice = [].slice
@@ -34,6 +805,87 @@ function injectfunc(e, window) {
   var expurl = RegExp((e["config-hook-regexp-url"] || '').trim())
   RegExp.prototype.v_test = RegExp.prototype.test
   String.prototype.v_split = String.prototype.split
+
+  var v_window_cache = {}
+  var v_winkeys = Object.getOwnPropertyNames(window)
+  for (var i = 0; i < v_winkeys.length; i++) {
+    if (typeof v_winkeys[i] == 'string'){
+      v_window_cache[v_winkeys[i]] = window[v_winkeys[i]]
+    }
+  }
+  var v_env_cache = {}
+  window.v_log_env = function (){
+    $make_v_func
+    function copyToClipboard(str){
+      const el = document.createElement('textarea');
+      el.value = str;
+      el.setAttribute('readonly', '');
+      el.style.position = 'absolute';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      const selected =
+        document.getSelection().rangeCount > 0 ? document.getSelection().getRangeAt(0) : false;
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      if (selected) {
+        document.getSelection().removeAllRanges();
+        document.getSelection().addRange(selected);
+      }
+    };
+    var mkstr = make_v([v_env_cache, v_getelement_all])
+    copyToClipboard(mkstr)
+    alert('已将代码存放到剪贴板中。')
+  }
+
+  // var v_addlistener_cache = {
+  //   document: {},
+  //   window: {},
+  // }
+  var v_getelement_all = {
+    v_getele: {},
+    v_geteles: {},
+  }
+  function inspect_arguments(_this, arg, ret, clazz, name, type){
+    // 这里搞魔改处理，让所有挂钩的函数的 arguments 都经过这个函数，然后方便魔改或收集内容。
+    // if (name == 'addEventListener'){
+    //   if (_this == document){ var cache = v_addlistener_cache.document }
+    //   if (_this == window){ var cache = v_addlistener_cache.window }
+    //   var fname = arg[0]
+    //   var func = arg[1]
+    //   cache[fname] = cache[fname] || []
+    //   cache[fname].push(func)
+    // }
+    if (name == 'getElementById' || name == 'querySelector'){
+      if (ret){
+        v_getelement_all.v_getele[arg[0]] = [name, ret]
+      }
+    }
+    if (name == 'getElementsByClassName' || name == 'getElementsByName' || name == 'getElementsByTagName' || name == 'getElementsByTagNameNS' || name == 'querySelectorAll'){
+      if (ret.length){
+        v_getelement_all.v_geteles[arg[0]] = [name, ret]
+      }
+    }
+  }
+
+  function v_cache_node(_addr, clazz, func, type, r){
+    // addr 这里的格式有点乱，还会携带一些代码执行行号的信息，要处理成 url 的形式，方便选择。
+    var exp = /http([^:]+:)\/\/([^/:?#]+)(:\d+)?([^?#:]*)?(\?[^#:]*)?(#[^:]*)?/
+    if (exp.exec(_addr)){
+      var addr = exp.exec(_addr)[0]
+    }else{
+      var addr = _addr
+    }
+    v_env_cache[addr] = v_env_cache[addr] || {}
+    v_env_cache[addr][clazz] = v_env_cache[addr][clazz] || {}
+    v_env_cache[addr][clazz][func] = v_env_cache[addr][clazz][func] || {}
+    v_env_cache[addr][clazz][func][type] = {}
+    if (typeof r == 'string' || typeof r == 'number' || typeof r == 'boolean'){
+      v_env_cache[addr][clazz][func][type].value = r
+    }else{
+      v_env_cache[addr][clazz][func][type].value = {}
+    }
+  }
 
   var expstr = ''
   var attoggle = e["config-hook-log-at"]
@@ -76,31 +928,32 @@ function injectfunc(e, window) {
   }
 
   var toggle = true
-  if (e["config-hook-alt-w"]) {
-    document.onkeydown = function(event){
-      if (event.key == 'w' && event.altKey){
-        toggle = !toggle
-        e["config-hook-domobj"] = toggle
-        e["config-hook-Function"] = toggle
-        e["config-hook-eval"] = toggle
-        e["config-hook-cookie"] = toggle
-        e["config-hook-settimeout"] = toggle
-        e["config-hook-setinterval"] = toggle
-        e["config-hook-JSON.parse"] = toggle
-        e["config-hook-JSON.stringify"] = toggle
-        e["config-hook-decodeURI"] = toggle
-        e["config-hook-decodeURIComponent"] = toggle
-        e["config-hook-encodeURI"] = toggle
-        e["config-hook-encodeURIComponent"] = toggle
-        e["config-hook-escape"] = toggle
-        e["config-hook-unescape"] = toggle
-        if (toggle){
-          window.v_log('开启日志')
-        }else{
-          window.v_log('关闭日志')
-        }
+  e.logtogglefunc = function(event){
+    if (event.key == 'w' && event.altKey){
+      toggle = !toggle
+      e["config-hook-domobj"] = toggle
+      e["config-hook-Function"] = toggle
+      e["config-hook-eval"] = toggle
+      e["config-hook-cookie"] = toggle
+      e["config-hook-settimeout"] = toggle
+      e["config-hook-setinterval"] = toggle
+      e["config-hook-JSON.parse"] = toggle
+      e["config-hook-JSON.stringify"] = toggle
+      e["config-hook-decodeURI"] = toggle
+      e["config-hook-decodeURIComponent"] = toggle
+      e["config-hook-encodeURI"] = toggle
+      e["config-hook-encodeURIComponent"] = toggle
+      e["config-hook-escape"] = toggle
+      e["config-hook-unescape"] = toggle
+      if (toggle){
+        window.v_log('开启日志')
+      }else{
+        window.v_log('关闭日志')
       }
     }
+  }
+  if (e["config-hook-alt-w"]) {
+    document.onkeydown = e.logtogglefunc
   }
   if (e["config-hook-console"]){
     Object.keys(console).map(function(e){console[e] = eval(`saf(function ${e}(){})`)})
@@ -179,7 +1032,9 @@ function injectfunc(e, window) {
           window.v_cookie_get(r)
         }else{ 
           if (e["config-hook-cookie"] && e["config-hook-cookie-get"]){
-            if (expurl.v_test(expstr=Error().stack.v_split('\n')[2])){
+            var expstr=Error().stack.v_split('\n')[2]
+            v_cache_node(expstr, "Document", "cookie", "get", r)
+            if (expurl.v_test(expstr)){
               window.v_log(..._mk_logs('[cookie get]', r, get_log_at(expstr.trim())))
             }
             if (e["config-hook-cookie-add-debugger"]){ debugger }
@@ -193,7 +1048,9 @@ function injectfunc(e, window) {
           window.v_cookie_set(arguments)
         }else{ 
           if (e["config-hook-cookie"] && e["config-hook-cookie-set"]){
-            if (expurl.v_test(expstr=Error().stack.v_split('\n')[2])){
+            var expstr=Error().stack.v_split('\n')[2]
+            v_cache_node(expstr, "Document", "cookie", "set")
+            if (expurl.v_test(expstr)){
               window.v_log(..._mk_logs('[cookie set]', v, get_log_at(expstr.trim())) )
             }
             if (e["config-hook-cookie-add-debugger"]){ debugger }
@@ -297,6 +1154,13 @@ function injectfunc(e, window) {
   if (e["config-hook-domobj"]){
     $domobj_placeholder
   }
+  !function(){
+    try{
+      $myinject
+    }catch(e){
+      v_log('inject error.')
+    }
+  }()
 }
 
 
@@ -333,7 +1197,10 @@ function make_domhooker_funcs(){
         var _new_get = saf(function get(){
           var r = _old_get.apply(this, arguments)
           if (e["config-hook-domobj"] && e["config-hook-domobj-get"] && e["config-hook-${obname}-${name}"]){ 
-            if (expurl.v_test(expstr=Error().stack.v_split('\\n')[2])){
+            var expstr = Error().stack.v_split('\\n')[2]
+            v_cache_node(expstr, "${obname}", "${name}", "get", r)
+            inspect_arguments(this, arguments, r, "${obname}", "${name}", "get")
+            if (expurl.v_test(expstr)){
               window.v_log(..._mk_logs('[${obname} ${name} get]', r, get_log_at(expstr.trim())))
             }
           }
@@ -341,7 +1208,10 @@ function make_domhooker_funcs(){
         if (_old_set){
           var _new_set = saf(function set(v){
             if (e["config-hook-domobj"] && e["config-hook-domobj-set"] && e["config-hook-${obname}-${name}"]){ 
-              if (expurl.v_test(expstr=Error().stack.v_split('\\n')[2])){
+              var expstr = Error().stack.v_split('\\n')[2]
+              v_cache_node(expstr, "${obname}", "${name}", "set")
+              inspect_arguments(this, arguments, null, "${obname}", "${name}", "set")
+              if (expurl.v_test(expstr)){
                 window.v_log(..._mk_logs('[${obname} ${name} set]', v, get_log_at(expstr.trim())))
               }
             }
@@ -359,11 +1229,15 @@ function make_domhooker_funcs(){
         try{ var _desc = Object.getOwnPropertyDescriptors(${obname}.prototype).${name}, _old_val = _desc.value }catch(e){ return }
         var _new_val = saf(function ${name}(){
           if (e["config-hook-domobj"] && e["config-hook-domobj-func"] && e["config-hook-${obname}-${name}"]){ 
-            if (expurl.v_test(expstr=Error().stack.v_split('\\n')[2])){
+            var expstr = Error().stack.v_split('\\n')[2]
+            v_cache_node(expstr, "${obname}", "${name}", "func")
+            if (expurl.v_test(expstr)){
               window.v_log(..._mk_logs('  (f) [${obname} ${name} func]', origslice.call(arguments), get_log_at(expstr.trim())))
             }
           }
-          return _old_val.apply(this, arguments) })
+          var r = _old_val.apply(this, arguments) 
+          inspect_arguments(this, arguments, r, "${obname}", "${name}", "func")
+          return r })
         try{ Object.defineProperty(${obname}.prototype, '${name}', { value: _new_val, enumerable: _desc['enumerable'], configurable: _desc['configurable'], writable: _desc['writable'], })
         }catch(e){  }
       }()
@@ -411,6 +1285,8 @@ var hookers = [
   "config-hook-domobj-func",
   "config-hook-regexp-url",
   "config-hook-log-at",
+  "config-myinject",
+  "config-myinject_toggle",
 ]
 function add_config_hook(input){
   for (var i = 0; i < input.length; i++) {
@@ -425,16 +1301,35 @@ function inject_script(code){
   var script = document.createElement("script");
   script.innerHTML = code;
   script.onload = script.onreadystatechange = function(){
-      script.onreadystatechange = script.onload = null;
+    script.onreadystatechange = script.onload = null;
   }
   var head = document.getElementsByTagName("head")[0];
   (head || document.body).appendChild( script );
   (head || document.body).removeChild( script );
 }
 
+function check_format(str){
+  try{
+    eval(`function test(){
+      $myinject
+    }`.replace('$myinject', str))
+    return true
+  }catch(e){
+    return false
+  }
+}
+
 chrome.storage.local.get(hookers, function (result) {
   if (result["config-hook-global"]){
+    var myinject = result["config-myinject"]
+    if (result["config-myinject_toggle"]){
+      var myinject = check_format(myinject) ? myinject : 'v_log("format error.")'
+    }else{
+      var myinject = 'undefined'
+    }
     var replacer_injectfunc = (injectfunc + '').replace('$domobj_placeholder', make_domhooker_funcs())
+    var replacer_injectfunc = replacer_injectfunc.replace('$make_v_func', make_v+';')
+    var replacer_injectfunc = replacer_injectfunc.replace('$myinject', myinject+';')
     inject_script(`(${replacer_injectfunc})(${JSON.stringify(result)},window)`);
   }
 })
@@ -442,5 +1337,14 @@ chrome.storage.local.get(hookers, function (result) {
 chrome.extension.onMessage.addListener(function(msg, sender, sendResponse) {
   if (msg.action.type == 'error'){
     inject_script(`console.error(${JSON.stringify(msg.action.info)})`)
+  }
+  if (msg.action.type == 'addlistener'){
+    inject_script(`try{v_log_env()}catch(e){debugger;alert('请打开调试总开关，同时将dom挂钩全部选中后，再刷新页面点击代码生成按钮。')}`)
+  }
+  if (msg.action.type == 'logtoggle'){
+    inject_script(`globalConfig.logtogglefunc({key:'w',altKey:true})`)
+  }
+  if (msg.action.type == 'alerterror'){
+    inject_script(`alert(${JSON.stringify(msg.action.info)})`)
   }
 });
